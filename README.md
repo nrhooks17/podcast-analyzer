@@ -16,6 +16,7 @@ AI-powered transcript analysis tool. Generates summaries, extracts key takeaways
 ### Prerequisites
 - **Docker** (v20.10+) and **Docker Compose** (v2.0+)
 - **Anthropic API key** ([get here](https://console.anthropic.com/))
+- **Serper API key** ([get here](https://serper.dev/))
 
 ### For Local Development (Optional)
 - **Python 3.11+** with **pip**
@@ -29,7 +30,7 @@ cd podcast-analyzer
 
 # Configure environment
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+# Edit .env and add your API keys: ANTHROPIC_API_KEY and SERPER_API_KEY
 
 # Start application
 docker-compose up -d
@@ -94,7 +95,7 @@ npm run dev
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ANTHROPIC_API_KEY` | Yes | Claude AI API key |
-| `SERPER_API_KEY` | No | Web search for fact-checking |
+| `SERPER_API_KEY` | Yes | Web search for fact-checking |
 | `POSTGRES_PASSWORD` | No | Database password (default: postgres) |
 
 ## Troubleshooting
