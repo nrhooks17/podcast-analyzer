@@ -1,0 +1,37 @@
+# Build stage
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the applications
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o worker ./cmd/worker
+
+# Runtime stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates tzdata
+WORKDIR /root/
+
+# Copy the binaries from builder stage
+COPY --from=builder /app/main .
+COPY --from=builder /app/worker .
+
+# Create storage directory
+RUN mkdir -p /app/storage/transcripts
+
+# Expose port
+EXPOSE 8001
+
+# Run the binary
+CMD ["./main"]

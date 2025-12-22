@@ -5,15 +5,15 @@ Podcast transcript analysis application using AI.
 ## System Components
 
 ```
-Frontend (React) → Backend (FastAPI) → Database (PostgreSQL)
-                          ↓
-                    Kafka Queue → Analysis Worker → Claude AI
+Frontend (React) → Backend (Go) → Database (PostgreSQL)
+                        ↓
+                  Kafka Queue → Analysis Worker → Claude AI
 ```
 
 ## Core Services
 
 - **Frontend**: React app for file upload and results display
-- **Backend**: FastAPI REST API with validation and job management  
+- **Backend**: Go REST API with validation and job management  
 - **Worker**: Kafka consumer running AI analysis agents
 - **Database**: PostgreSQL for metadata and results storage
 - **Queue**: Apache Kafka for asynchronous job processing
@@ -43,7 +43,7 @@ Frontend polls Backend API every 3 seconds until complete
 ## Key Technologies
 
 - **Frontend**: React 18 + Vite
-- **Backend**: FastAPI (Python 3.11+)  
+- **Backend**: Go 1.23+  
 - **Database**: PostgreSQL 15
 - **Queue**: Apache Kafka
 - **AI**: Claude Sonnet 4
@@ -243,8 +243,8 @@ All AI agents inherit from `BaseAgent` which provides:
 ```yaml
 services:
   - frontend (React dev server)
-  - backend (FastAPI with reload)
-  - kafka-worker (Python with reload)
+  - backend (Go with hot reload)
+  - kafka-worker (Go with hot reload)
   - postgres (PostgreSQL 15)
   - zookeeper (Kafka dependency)
   - kafka (Apache Kafka)

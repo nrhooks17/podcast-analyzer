@@ -3,38 +3,47 @@
 .env.local
 .env.production
 .env.development
+.env.test
 
-# Dependencies
-node_modules/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+# Go build artifacts and binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/bin/
+/pkg/
+go.work
+go.work.sum
 
-# IDE
+# Go test files
+.cover
+.coverage
+coverage.html
+coverage.out
+coverage.xml
+*.coverprofile
+c.out
+
+# Go vendor directory
+vendor/
+Godeps/
+
+# Go module cache
+go.sum
+
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.vimrc
+.nvimrc
 
-# OS
+# OS files
 .DS_Store
 .DS_Store?
 ._*
@@ -46,61 +55,87 @@ Thumbs.db
 # Logs
 *.log
 logs/
+/logs/
 
-# Database
+# Database files
 *.db
 *.sqlite
 *.sqlite3
-
-# Test coverage
-.coverage
-.pytest_cache/
-htmlcov/
-.tox/
-.nox/
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-
-# Build artifacts
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Docker
-.dockerignore
-
-# Storage
-storage/
-uploads/
-temp/
-
-# React build
-frontend/build/
-frontend/dist/
+*.db-journal
+*.db-shm
+*.db-wal
 
 # Temporary files
 *.tmp
 *.temp
 .tmp/
+/tmp/
 
-# Claude Code documentation
+# Storage and uploads
+storage/
+uploads/
+temp/
+files/
+transcripts/
+
+# Docker
+.dockerignore
+
+# Documentation and Claude files
 CLAUDE.md
+*.claude
+.claude/
+AI_LOGS.md
+README_AI.md
+DEPLOYMENT.md
+
+# Python artifacts (for mixed projects)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.tox/
+.nox/
+.hypothesis/
+
+# Node.js artifacts (for frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+frontend/build/
+frontend/dist/
+frontend/.next/
+
+# Build directories
+/build/
+/dist/
+/out/
+
+# Configuration files with secrets
+config.json
+config.yaml
+config.yml
+secrets.json
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
+# Kafka and message queue files
+kafka-logs/
+zookeeper/
+.kafka/
+
+# Backup files
+*.bak
+*.backup
+*~
+.#*
+\#*#

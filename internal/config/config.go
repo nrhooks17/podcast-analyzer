@@ -1,0 +1,95 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/joho/godotenv"
+)
+
+// Config holds all configuration for the application
+type Config struct {
+	// Database configuration
+	DatabaseURL string
+
+	// Anthropic API configuration
+	AnthropicAPIKey string
+
+	// Serper API configuration for web search
+	SerperAPIKey string
+
+	// Kafka configuration
+	KafkaBootstrapServers string
+	KafkaTopicAnalysis    string
+
+	// File storage configuration
+	StoragePath   string
+	MaxFileSize   int64
+	AllowedExts   []string
+
+	// Server configuration
+	ServerPort string
+	LogLevel   string
+
+	// CORS configuration
+	CORSOrigins []string
+
+	// AI model configuration
+	ClaudeModel       string
+	SummaryMaxWords   int
+	SummaryMinWords   int
+}
+
+// Load reads configuration from environment variables
+func Load() (*Config, error) {
+	// Try to load .env file, but don't fail if it doesn't exist
+	_ = godotenv.Load()
+
+	cfg := &Config{
+		DatabaseURL:           getEnvWithDefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/podcast_analyzer"),
+		AnthropicAPIKey:       os.Getenv("ANTHROPIC_API_KEY"),
+		SerperAPIKey:          os.Getenv("SERPER_API_KEY"),
+		KafkaBootstrapServers: getEnvWithDefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
+		KafkaTopicAnalysis:    "analysis-jobs",
+		StoragePath:           getEnvWithDefault("STORAGE_PATH", "/app/storage/transcripts"),
+		MaxFileSize:           10 * 1024 * 1024, // 10MB
+		AllowedExts:           []string{".txt", ".json"},
+		ServerPort:            getEnvWithDefault("SERVER_PORT", "8001"), // Different port from Python backend
+		LogLevel:              getEnvWithDefault("LOG_LEVEL", "INFO"),
+		ClaudeModel:           "claude-sonnet-4-20250514",
+		SummaryMaxWords:       300,
+		SummaryMinWords:       200,
+	}
+
+	// Parse CORS origins
+	corsOriginsStr := getEnvWithDefault("CORS_ORIGINS", "http://localhost:3000")
+	cfg.CORSOrigins = strings.Split(corsOriginsStr, ",")
+	for i := range cfg.CORSOrigins {
+		cfg.CORSOrigins[i] = strings.TrimSpace(cfg.CORSOrigins[i])
+	}
+
+	// Validate required configuration
+	if cfg.AnthropicAPIKey == "" {
+		return nil, fmt.Errorf("ANTHROPIC_API_KEY is required")
+	}
+
+	return cfg, nil
+}
+
+func getEnvWithDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvAsInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
+}

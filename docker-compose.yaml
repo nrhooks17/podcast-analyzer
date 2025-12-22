@@ -53,24 +53,27 @@ services:
       timeout: 10s
       retries: 5
 
-  # FastAPI Backend
+  # Go Backend
   backend:
     build:
-      context: ./backend
+      context: ${BACKEND_PATH}
       dockerfile: Dockerfile
     container_name: podcast_backend
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-podcast_analyzer}
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      STORAGE_PATH: /app/storage/transcripts
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      DATABASE_URL: ${DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      STORAGE_PATH: ${STORAGE_PATH}
+      LOG_LEVEL: ${LOG_LEVEL}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SERPER_API_KEY: ${SERPER_API_KEY}
+      SERVER_PORT: ${SERVER_PORT}
     volumes:
-      - transcript_storage:/app/storage/transcripts
+      - transcript_storage:${STORAGE_PATH}
       # Development volume for hot reloading (remove for production)
-      - ./backend:/app
+      - ${BACKEND_PATH}:/app
     ports:
-      - "8000:8000"
+      - "${SERVER_PORT}:${SERVER_PORT}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,21 +83,21 @@ services:
   # Kafka Worker (same backend image, different entrypoint)
   kafka-worker:
     build:
-      context: ./backend
+      context: ${BACKEND_PATH}
       dockerfile: Dockerfile
     container_name: podcast_kafka_worker
-    command: ["python", "-m", "app.workers.analysis_worker"]
+    command: ["./worker"]
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-podcast_analyzer}
+      DATABASE_URL: ${DATABASE_URL}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       SERPER_API_KEY: ${SERPER_API_KEY}
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      STORAGE_PATH: /app/storage/transcripts
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      STORAGE_PATH: ${STORAGE_PATH}
+      LOG_LEVEL: ${LOG_LEVEL}
     volumes:
-      - transcript_storage:/app/storage/transcripts
+      - transcript_storage:${STORAGE_PATH}
       # Development volume for hot reloading (remove for production)
-      - ./backend:/app
+      - ${BACKEND_PATH}:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,19 +107,20 @@ services:
   # React Frontend
   frontend:
     build:
-      context: ./frontend
+      context: ${FRONTEND_PATH}
       dockerfile: Dockerfile
     container_name: podcast_frontend
     environment:
-      REACT_APP_API_BASE_URL: ${REACT_APP_API_BASE_URL:-http://localhost:8000}
+      REACT_APP_API_BASE_URL: ${REACT_APP_API_BASE_URL}
     volumes:
       # Development volume for hot reloading (remove for production)
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+      - ${FRONTEND_PATH}/src:/app/src
+      - ${FRONTEND_PATH}/public:/app/public
     ports:
       - "3000:3000"
     depends_on:
       - backend
+
 
 volumes:
   postgres_data:

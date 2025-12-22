@@ -1,126 +1,118 @@
-# Podcast Analyzer
+# Go Backend Implementation
 
-AI-powered transcript analysis tool. Generates summaries, extracts key takeaways, and fact-checks claims from podcast transcripts.
+This is a Go port of the Python FastAPI backend, implementing the same API endpoints and functionality with improved performance and type safety.
 
-## Features
+## Architecture
 
-- Upload .txt/.json transcripts (10MB max)
-- AI analysis with Claude Sonnet 4
-- Summary generation (200-300 words)
-- Key takeaway extraction
-- Fact-checking with confidence scores
-- Analysis history tracking
+The Go backend follows standard Go project structure:
 
-## Quick Start
-
-### Prerequisites
-- **Docker** (v20.10+) and **Docker Compose** (v2.0+)
-- **Anthropic API key** ([get here](https://console.anthropic.com/))
-- **Serper API key** ([get here](https://serper.dev/))
-
-### For Local Development (Optional)
-- **Python 3.11+** with **pip**
-- **Node.js 18+** with **npm**
-
-### Setup
-```bash
-# Clone and navigate
-git clone <repository-url>
-cd podcast-analyzer
-
-# Configure environment
-cp .env.example .env
-# Edit .env and add your API keys: ANTHROPIC_API_KEY and SERPER_API_KEY
-
-# Start application
-docker-compose up -d
+```
+backend-golang/
+├── cmd/server/          # Application entrypoint
+├── internal/
+│   ├── config/          # Configuration management
+│   ├── models/          # Database models (GORM)
+│   ├── services/        # Business logic layer
+│   ├── handlers/        # HTTP handlers (Gin)
+│   └── middleware/      # HTTP middleware
+├── pkg/
+│   ├── logger/          # Structured logging
+│   └── kafka/           # Kafka integration
+└── migrations/          # Database migrations
 ```
 
-### Access
-- **App**: http://localhost:3000
-- **API Docs**: http://localhost:8000/docs
+## Key Features
 
-## Usage
+- **Framework**: Gin HTTP framework for high performance
+- **ORM**: GORM for database operations with PostgreSQL
+- **Messaging**: Segmentio Kafka Go client
+- **Logging**: Structured JSON logging with correlation IDs
+- **Configuration**: Environment-based configuration
+- **Type Safety**: Full Go type safety with proper error handling
 
-1. Upload transcript file (.txt or .json)
-2. Click "Start Analysis"
-3. Monitor progress
-4. View results: summary, takeaways, fact-checks
+## API Compatibility
 
-### Example Transcript Format
+The Go backend exposes the same REST API as the Python backend but on port **8001** (vs 8000 for Python):
 
-**Text (.txt):**
-```
-[00:00:00] Host: Welcome to today's show about space exploration.
-[00:00:15] Guest: NASA's Mars mission launches in 2026.
-```
-
-**JSON (.json):**
-```json
-{
-  "title": "Space Talk",
-  "transcript": [
-    {"timestamp": "00:00:00", "speaker": "Host", "text": "Welcome..."},
-    {"timestamp": "00:00:15", "speaker": "Guest", "text": "NASA's Mars..."}
-  ]
-}
-```
-
-## Development
-
-### Run Tests
-```bash
-# Backend
-cd backend && pytest
-
-# Frontend  
-cd frontend && npm test
-```
-
-### Local Development
-```bash
-# Backend
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-
-# Frontend
-cd frontend
-npm install
-npm run dev
-```
+- `POST /api/transcripts/` - Upload transcript
+- `GET /api/transcripts/` - List transcripts 
+- `GET /api/transcripts/:id` - Get transcript
+- `DELETE /api/transcripts/:id` - Delete transcript
+- `POST /api/analyze/:transcript_id` - Start analysis
+- `GET /api/jobs/:job_id/status` - Check job status
+- `GET /api/results/:analysis_id` - Get analysis results
+- `GET /api/results/` - List analysis results
+- `GET /health` - Health check
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ANTHROPIC_API_KEY` | Yes | Claude AI API key |
-| `SERPER_API_KEY` | Yes | Web search for fact-checking |
-| `POSTGRES_PASSWORD` | No | Database password (default: postgres) |
+Same as Python backend plus:
 
-## Troubleshooting
+- `SERVER_PORT` - Server port (default: 8001)
 
-**Services won't start:**
+## Running the Go Backend
+
+### With Docker Compose (Recommended)
+
+Uncomment the `backend-golang` service in `docker-compose.yaml` and run:
+
 ```bash
-docker-compose logs [service-name]
-docker-compose restart
+docker-compose up backend-golang
 ```
 
-**Upload fails:**
-- Check file format (.txt/.json)
-- Verify file size (<10MB)
-- Ensure UTF-8 encoding
+### Locally for Development
 
-**Analysis stuck:**
 ```bash
-docker-compose logs kafka-worker
-docker-compose restart kafka-worker
+cd backend-golang
+
+# Install dependencies
+go mod tidy
+
+# Run the server
+go run cmd/server/main.go
 ```
 
-## Tech Stack
+The server will start on http://localhost:8001
 
-- **Frontend**: React + Vite
-- **Backend**: FastAPI (Python)
-- **Database**: PostgreSQL
-- **Queue**: Apache Kafka
-- **AI**: Claude Sonnet 4
+## Performance Benefits
+
+- **Lower Memory Usage**: Go's efficient memory management
+- **Faster Startup**: No interpreter overhead
+- **Better Concurrency**: Go's goroutine-based concurrency model
+- **Type Safety**: Compile-time error checking
+- **Single Binary**: Easy deployment without dependencies
+
+## Database Models
+
+Uses GORM for ORM with the same database schema as Python:
+
+- `Transcript` - File metadata and content
+- `AnalysisResult` - Analysis job status and results  
+- `FactCheck` - Individual fact-check results
+
+## Testing
+
+```bash
+# Run tests
+go test ./...
+
+# Run tests with coverage
+go test -cover ./...
+```
+
+## Building
+
+```bash
+# Build binary
+go build -o podcast-analyzer cmd/server/main.go
+
+# Build for production
+CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o podcast-analyzer cmd/server/main.go
+```
+
+## Monitoring
+
+- Health endpoint: `GET /health`
+- Structured JSON logs with correlation IDs
+- Request/response logging middleware
+- Database connection health checks
