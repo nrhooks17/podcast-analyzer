@@ -1,6 +1,6 @@
-# Go Backend Implementation
+# Podcast Analyzer Backend
 
-This is a Go port of the Python FastAPI backend, implementing the same API endpoints and functionality with improved performance and type safety.
+A high-performance Go backend for analyzing podcast transcripts with AI-powered summarization and fact-checking.
 
 ## Architecture
 
@@ -30,9 +30,9 @@ backend-golang/
 - **Configuration**: Environment-based configuration
 - **Type Safety**: Full Go type safety with proper error handling
 
-## API Compatibility
+## API Endpoints
 
-The Go backend exposes the same REST API as the Python backend but on port **8001** (vs 8000 for Python):
+The backend exposes the following REST API endpoints on port **8001**:
 
 - `POST /api/transcripts/` - Upload transcript
 - `GET /api/transcripts/` - List transcripts 
@@ -46,25 +46,24 @@ The Go backend exposes the same REST API as the Python backend but on port **800
 
 ## Environment Variables
 
-Same as Python backend plus:
-
 - `SERVER_PORT` - Server port (default: 8001)
+- `DATABASE_URL` - PostgreSQL connection string
+- `KAFKA_BROKERS` - Kafka broker addresses
+- `ANTHROPIC_API_KEY` - Claude API key for AI processing
+- `SERPER_API_KEY` - Serper API key for web search
+- `LOG_LEVEL` - Logging level (DEBUG, INFO, WARN, ERROR)
 
-## Running the Go Backend
+## Running the Backend
 
 ### With Docker Compose (Recommended)
 
-Uncomment the `backend-golang` service in `docker-compose.yaml` and run:
-
 ```bash
-docker-compose up backend-golang
+docker-compose up
 ```
 
 ### Locally for Development
 
 ```bash
-cd backend-golang
-
 # Install dependencies
 go mod tidy
 
@@ -73,22 +72,6 @@ go run cmd/server/main.go
 ```
 
 The server will start on http://localhost:8001
-
-## Performance Benefits
-
-- **Lower Memory Usage**: Go's efficient memory management
-- **Faster Startup**: No interpreter overhead
-- **Better Concurrency**: Go's goroutine-based concurrency model
-- **Type Safety**: Compile-time error checking
-- **Single Binary**: Easy deployment without dependencies
-
-## Database Models
-
-Uses GORM for ORM with the same database schema as Python:
-
-- `Transcript` - File metadata and content
-- `AnalysisResult` - Analysis job status and results  
-- `FactCheck` - Individual fact-check results
 
 ## Testing
 
