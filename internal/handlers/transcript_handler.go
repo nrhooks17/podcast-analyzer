@@ -4,10 +4,6 @@ import (
 	"net/http"
 	"backend-golang/internal/services"
 	"backend-golang/pkg/logger"
-	"strconv"
-
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type TranscriptHandler struct {
@@ -21,17 +17,40 @@ func NewTranscriptHandler(transcriptService services.TranscriptServiceInterface)
 }
 
 // UploadTranscript handles file upload
-func (h *TranscriptHandler) UploadTranscript(c *gin.Context) {
-	correlationID := getCorrelationID(c)
+func (h *TranscriptHandler) UploadTranscript(w http.ResponseWriter, r *http.Request) {
+	// Only handle POST and multipart uploads
+	if r.Method != http.MethodPost {
+		if matched, _ := matchPath(r.URL.Path, "/api/transcripts/"); matched {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+			return
+		}
+		// If not a transcript upload path, skip
+		return
+	}
+
+	correlationID := getCorrelationID(r)
 	
 	// Log request start
 	logger.Log.WithFields(map[string]interface{}{
 		"correlation_id": correlationID,
-		"client_ip":      c.ClientIP(),
-		"user_agent":     c.GetHeader("User-Agent"),
+		"client_ip":      getClientIP(r),
+		"user_agent":     r.UserAgent(),
 	}).Info("Upload transcript request received")
 
-	file, err := c.FormFile("file")
+	// Parse multipart form
+	err := r.ParseMultipartForm(32 << 20) // 32 MB max memory
+	if err != nil {
+		errMsg := "Failed to parse multipart form"
+		logger.Log.WithFields(map[string]interface{}{
+			"correlation_id": correlationID,
+			"error":          err.Error(),
+		}).Error("Form parsing failed")
+		
+		writeErrorWithCorrelation(w, http.StatusBadRequest, "FORM_PARSE_ERROR", errMsg, correlationID)
+		return
+	}
+
+	file, fileHeader, err := r.FormFile("file")
 	if err != nil {
 		errMsg := "No file uploaded or invalid file"
 		logger.Log.WithFields(map[string]interface{}{
@@ -39,23 +58,19 @@ func (h *TranscriptHandler) UploadTranscript(c *gin.Context) {
 			"error":          err.Error(),
 		}).Error("File upload validation failed")
 		
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": map[string]interface{}{
-				"code":    "FILE_VALIDATION_ERROR",
-				"message": errMsg,
-			},
-		})
+		writeErrorWithCorrelation(w, http.StatusBadRequest, "FILE_VALIDATION_ERROR", errMsg, correlationID)
 		return
 	}
+	defer file.Close()
 
 	logger.Log.WithFields(map[string]interface{}{
 		"correlation_id": correlationID,
-		"filename":       file.Filename,
-		"file_size":      file.Size,
+		"filename":       fileHeader.Filename,
+		"file_size":      fileHeader.Size,
 	}).Info("Processing uploaded file")
 
 	req := &services.UploadTranscriptRequest{
-		File: file,
+		File: fileHeader,
 	}
 
 	response, err := h.transcriptService.UploadTranscript(req, correlationID)
@@ -71,12 +86,12 @@ func (h *TranscriptHandler) UploadTranscript(c *gin.Context) {
 		logger.LogErrorWithStackAndCorrelation(err, correlationID, map[string]interface{}{
 			"error_code":  errorCode,
 			"status_code": statusCode,
-			"filename":    file.Filename,
-			"file_size":   file.Size,
+			"filename":    fileHeader.Filename,
+			"file_size":   fileHeader.Size,
 			"operation":   "upload_transcript",
 		})
 
-		c.JSON(statusCode, gin.H{
+		writeJSON(w, statusCode, map[string]interface{}{
 			"error": map[string]interface{}{
 				"code":           errorCode,
 				"message":        err.Error(),
@@ -93,13 +108,18 @@ func (h *TranscriptHandler) UploadTranscript(c *gin.Context) {
 		"word_count":      response.WordCount,
 	}).Info("Upload completed successfully")
 
-	c.JSON(http.StatusOK, response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // GetTranscripts returns paginated list of transcripts
-func (h *TranscriptHandler) GetTranscripts(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+func (h *TranscriptHandler) GetTranscripts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	page := getQueryParamInt(r, "page", 1)
+	perPage := getQueryParamInt(r, "per_page", 20)
 
 	if page < 1 {
 		page = 1
@@ -115,16 +135,11 @@ func (h *TranscriptHandler) GetTranscripts(c *gin.Context) {
 			"page":      page,
 			"per_page":  perPage,
 		})
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": map[string]interface{}{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to retrieve transcripts",
-			},
-		})
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve transcripts")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"transcripts": transcripts,
 		"total":       total,
 		"page":        page,
@@ -133,16 +148,22 @@ func (h *TranscriptHandler) GetTranscripts(c *gin.Context) {
 }
 
 // GetTranscript returns a single transcript
-func (h *TranscriptHandler) GetTranscript(c *gin.Context) {
-	idParam := c.Param("id")
-	id, err := uuid.Parse(idParam)
+func (h *TranscriptHandler) GetTranscript(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	// Extract ID from path like /api/transcripts/123
+	idStr, err := extractIDFromPath(r.URL.Path, "/api/transcripts/")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": map[string]interface{}{
-				"code":    "INVALID_UUID",
-				"message": "Invalid transcript ID format",
-			},
-		})
+		writeError(w, http.StatusBadRequest, "INVALID_PATH", "Invalid transcript path")
+		return
+	}
+
+	id, err := parseUUIDParam(idStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_UUID", "Invalid transcript ID format")
 		return
 	}
 
@@ -163,30 +184,32 @@ func (h *TranscriptHandler) GetTranscript(c *gin.Context) {
 			"operation":     "get_transcript",
 		})
 
-		c.JSON(statusCode, gin.H{
-			"error": map[string]interface{}{
-				"code":    errorCode,
-				"message": err.Error(),
-			},
-		})
+		writeError(w, statusCode, errorCode, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, transcript)
+	writeJSON(w, http.StatusOK, transcript)
 }
 
 // DeleteTranscript deletes a transcript
-func (h *TranscriptHandler) DeleteTranscript(c *gin.Context) {
-	correlationID := getCorrelationID(c)
-	idParam := c.Param("id")
-	id, err := uuid.Parse(idParam)
+func (h *TranscriptHandler) DeleteTranscript(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	correlationID := getCorrelationID(r)
+	
+	// Extract ID from path
+	idStr, err := extractIDFromPath(r.URL.Path, "/api/transcripts/")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": map[string]interface{}{
-				"code":    "INVALID_UUID",
-				"message": "Invalid transcript ID format",
-			},
-		})
+		writeErrorWithCorrelation(w, http.StatusBadRequest, "INVALID_PATH", "Invalid transcript path", correlationID)
+		return
+	}
+
+	id, err := parseUUIDParam(idStr)
+	if err != nil {
+		writeErrorWithCorrelation(w, http.StatusBadRequest, "INVALID_UUID", "Invalid transcript ID format", correlationID)
 		return
 	}
 
@@ -206,16 +229,11 @@ func (h *TranscriptHandler) DeleteTranscript(c *gin.Context) {
 			"operation":     "delete_transcript",
 		})
 
-		c.JSON(statusCode, gin.H{
-			"error": map[string]interface{}{
-				"code":    errorCode,
-				"message": err.Error(),
-			},
-		})
+		writeErrorWithCorrelation(w, statusCode, errorCode, err.Error(), correlationID)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Transcript deleted successfully",
 	})
 }

@@ -87,8 +87,6 @@ func createTestFileUpload(t *testing.T, fieldName, filename, content string) (*b
 func TestTranscriptHandler_UploadTranscript(t *testing.T) {
 	mockService := &MockTranscriptService{}
 	handler := NewTranscriptHandler(mockService)
-	router := setupTestRouter()
-	router.POST("/transcripts", handler.UploadTranscript)
 
 	tests := []struct {
 		name           string
@@ -135,12 +133,12 @@ func TestTranscriptHandler_UploadTranscript(t *testing.T) {
 
 			// Create multipart form request
 			body, contentType := createTestFileUpload(t, "file", tt.filename, tt.content)
-			req := httptest.NewRequest(http.MethodPost, "/transcripts", body)
+			req := httptest.NewRequest(http.MethodPost, "/api/transcripts/", body)
 			req.Header.Set("Content-Type", contentType)
 			req.Header.Set("X-Correlation-ID", "test-correlation-id")
 
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, req)
+			handler.UploadTranscript(recorder, req)
 
 			assert.Equal(t, tt.expectedStatus, recorder.Code)
 
@@ -166,15 +164,13 @@ func TestTranscriptHandler_UploadTranscript(t *testing.T) {
 func TestTranscriptHandler_UploadTranscript_NoFile(t *testing.T) {
 	mockService := &MockTranscriptService{}
 	handler := NewTranscriptHandler(mockService)
-	router := setupTestRouter()
-	router.POST("/transcripts", handler.UploadTranscript)
 
 	// Create request without file
-	req := httptest.NewRequest(http.MethodPost, "/transcripts", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/transcripts/", nil)
 	req.Header.Set("X-Correlation-ID", "test-correlation-id")
 
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, req)
+	handler.UploadTranscript(recorder, req)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 
@@ -182,14 +178,12 @@ func TestTranscriptHandler_UploadTranscript_NoFile(t *testing.T) {
 	err := json.Unmarshal(recorder.Body.Bytes(), &response)
 	require.NoError(t, err)
 	errorObj := response["error"].(map[string]interface{})
-	assert.Contains(t, errorObj["message"].(string), "No file uploaded or invalid file")
+	assert.Contains(t, errorObj["message"].(string), "Failed to parse multipart form")
 }
 
 func TestTranscriptHandler_GetTranscripts(t *testing.T) {
 	mockService := &MockTranscriptService{}
 	handler := NewTranscriptHandler(mockService)
-	router := setupTestRouter()
-	router.GET("/transcripts", handler.GetTranscripts)
 
 	testTranscripts := []*models.Transcript{
 		{
@@ -206,9 +200,9 @@ func TestTranscriptHandler_GetTranscripts(t *testing.T) {
 
 	mockService.On("GetTranscripts", 1, 10).Return(testTranscripts, int64(2), nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/transcripts?page=1&per_page=10", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/transcripts?page=1&per_page=10", nil)
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, req)
+	handler.GetTranscripts(recorder, req)
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
@@ -228,8 +222,6 @@ func TestTranscriptHandler_GetTranscripts(t *testing.T) {
 func TestTranscriptHandler_GetTranscripts_InvalidPagination(t *testing.T) {
 	mockService := &MockTranscriptService{}
 	handler := NewTranscriptHandler(mockService)
-	router := setupTestRouter()
-	router.GET("/transcripts", handler.GetTranscripts)
 
 	// Mock service should return empty results for all these tests
 	mockService.On("GetTranscripts", mock.AnythingOfType("int"), mock.AnythingOfType("int")).Return([]*models.Transcript{}, int64(0), nil)
@@ -274,9 +266,9 @@ func TestTranscriptHandler_GetTranscripts_InvalidPagination(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/transcripts?"+tt.query, nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/transcripts?"+tt.query, nil)
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, req)
+			handler.GetTranscripts(recorder, req)
 
 			// Should succeed with corrected parameters
 			assert.Equal(t, http.StatusOK, recorder.Code)
@@ -295,8 +287,6 @@ func TestTranscriptHandler_GetTranscripts_InvalidPagination(t *testing.T) {
 func TestTranscriptHandler_GetTranscript(t *testing.T) {
 	mockService := &MockTranscriptService{}
 	handler := NewTranscriptHandler(mockService)
-	router := setupTestRouter()
-	router.GET("/transcripts/:id", handler.GetTranscript)
 
 	testID := uuid.New()
 	testTranscript := &models.Transcript{
@@ -345,9 +335,9 @@ func TestTranscriptHandler_GetTranscript(t *testing.T) {
 			mockService.Calls = nil
 			tt.setupMock()
 
-			req := httptest.NewRequest(http.MethodGet, "/transcripts/"+tt.id, nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/transcripts/"+tt.id, nil)
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, req)
+			handler.GetTranscript(recorder, req)
 
 			assert.Equal(t, tt.expectedStatus, recorder.Code)
 
@@ -373,8 +363,6 @@ func TestTranscriptHandler_GetTranscript(t *testing.T) {
 func TestTranscriptHandler_DeleteTranscript(t *testing.T) {
 	mockService := &MockTranscriptService{}
 	handler := NewTranscriptHandler(mockService)
-	router := setupTestRouter()
-	router.DELETE("/transcripts/:id", handler.DeleteTranscript)
 
 	testID := uuid.New()
 
@@ -418,10 +406,10 @@ func TestTranscriptHandler_DeleteTranscript(t *testing.T) {
 			mockService.Calls = nil
 			tt.setupMock()
 
-			req := httptest.NewRequest(http.MethodDelete, "/transcripts/"+tt.id, nil)
+			req := httptest.NewRequest(http.MethodDelete, "/api/transcripts/"+tt.id, nil)
 			req.Header.Set("X-Correlation-ID", "test-correlation-id")
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, req)
+			handler.DeleteTranscript(recorder, req)
 
 			assert.Equal(t, tt.expectedStatus, recorder.Code)
 

@@ -56,7 +56,7 @@ func Load() (*Config, error) {
 		StoragePath:           getEnvWithDefault("STORAGE_PATH", "/app/storage/transcripts"),
 		MaxFileSize:           10 * 1024 * 1024, // 10MB
 		AllowedExts:           []string{".txt", ".json"},
-		ServerPort:            getEnvWithDefault("SERVER_PORT", "8001"), // Different port from Python backend
+		ServerPort:            getEnvWithDefault("SERVER_PORT", "8000"), // Different port from Python backend
 		LogLevel:              getEnvWithDefault("LOG_LEVEL", "INFO"),
 		ClaudeModel:           "claude-sonnet-4-20250514",
 		SummaryMaxWords:       300,

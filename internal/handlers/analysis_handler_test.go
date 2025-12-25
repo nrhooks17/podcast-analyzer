@@ -9,17 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestRouter() *gin.Engine {
-	gin.SetMode(gin.TestMode)
-	return gin.New()
-}
 
 // AnalysisServiceInterface for testing
 type AnalysisServiceInterface interface {
@@ -74,8 +69,6 @@ func (m *MockAnalysisService) UpdateJobStatus(jobID uuid.UUID, status string, er
 func TestAnalysisHandler_StartAnalysis(t *testing.T) {
 	mockService := &MockAnalysisService{}
 	handler := NewAnalysisHandler(mockService)
-	router := setupTestRouter()
-	router.POST("/analyze/:transcript_id", handler.StartAnalysis)
 
 	testTranscriptID := uuid.New()
 
@@ -128,10 +121,10 @@ func TestAnalysisHandler_StartAnalysis(t *testing.T) {
 			mockService.Calls = nil
 			tt.setupMock()
 
-			req := httptest.NewRequest(http.MethodPost, "/analyze/"+tt.transcriptID, nil)
+			req := httptest.NewRequest(http.MethodPost, "/api/analyze/"+tt.transcriptID, nil)
 			req.Header.Set("X-Correlation-ID", "test-correlation-id")
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, req)
+			handler.StartAnalysis(recorder, req)
 
 			assert.Equal(t, tt.expectedStatus, recorder.Code)
 
@@ -156,8 +149,6 @@ func TestAnalysisHandler_StartAnalysis(t *testing.T) {
 func TestAnalysisHandler_GetJobStatus(t *testing.T) {
 	mockService := &MockAnalysisService{}
 	handler := NewAnalysisHandler(mockService)
-	router := setupTestRouter()
-	router.GET("/jobs/:job_id/status", handler.GetJobStatus)
 
 	testJobID := uuid.New()
 	testTranscriptID := uuid.New()
@@ -209,10 +200,10 @@ func TestAnalysisHandler_GetJobStatus(t *testing.T) {
 			mockService.Calls = nil
 			tt.setupMock()
 
-			req := httptest.NewRequest(http.MethodGet, "/jobs/"+tt.jobID+"/status", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/jobs/"+tt.jobID+"/status", nil)
 			req.Header.Set("X-Correlation-ID", "test-correlation-id")
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, req)
+			handler.GetJobStatus(recorder, req)
 
 			assert.Equal(t, tt.expectedStatus, recorder.Code)
 
@@ -238,8 +229,6 @@ func TestAnalysisHandler_GetJobStatus(t *testing.T) {
 func TestAnalysisHandler_ListAnalysisResults(t *testing.T) {
 	mockService := &MockAnalysisService{}
 	handler := NewAnalysisHandler(mockService)
-	router := setupTestRouter()
-	router.GET("/results", handler.ListAnalysisResults)
 
 	summary1 := "Test summary 1"
 	summary2 := "Test summary 2"
@@ -303,10 +292,10 @@ func TestAnalysisHandler_ListAnalysisResults(t *testing.T) {
 			mockService.Calls = nil
 			tt.setupMock()
 
-			req := httptest.NewRequest(http.MethodGet, "/results?"+tt.query, nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/results?"+tt.query, nil)
 			req.Header.Set("X-Correlation-ID", "test-correlation-id")
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, req)
+			handler.ListAnalysisResults(recorder, req)
 
 			assert.Equal(t, tt.expectedStatus, recorder.Code)
 
@@ -326,8 +315,6 @@ func TestAnalysisHandler_ListAnalysisResults(t *testing.T) {
 func TestAnalysisHandler_GetAnalysisResults(t *testing.T) {
 	mockService := &MockAnalysisService{}
 	handler := NewAnalysisHandler(mockService)
-	router := setupTestRouter()
-	router.GET("/results/:analysis_id", handler.GetAnalysisResults)
 
 	testAnalysisID := uuid.New()
 	summary := "Test summary"
@@ -392,10 +379,10 @@ func TestAnalysisHandler_GetAnalysisResults(t *testing.T) {
 			mockService.Calls = nil
 			tt.setupMock()
 
-			req := httptest.NewRequest(http.MethodGet, "/results/"+tt.analysisID, nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/results/"+tt.analysisID, nil)
 			req.Header.Set("X-Correlation-ID", "test-correlation-id")
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, req)
+			handler.GetAnalysisResults(recorder, req)
 
 			assert.Equal(t, tt.expectedStatus, recorder.Code)
 

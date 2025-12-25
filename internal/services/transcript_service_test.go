@@ -74,7 +74,7 @@ func setupTestConfig(t *testing.T) *config.Config {
 		MaxFileSize:   10 * 1024 * 1024, // 10MB
 		AllowedExts:   []string{".txt", ".json"},
 		DatabaseURL:   "sqlite://:memory:",
-		ServerPort:    "8001",
+		ServerPort:    "8000",
 		LogLevel:      "DEBUG",
 		AnthropicAPIKey: "test-key",
 		SerperAPIKey:    "test-key",

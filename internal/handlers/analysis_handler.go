@@ -2,11 +2,10 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 	"backend-golang/internal/services"
 	"backend-golang/pkg/logger"
-	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -21,17 +20,27 @@ func NewAnalysisHandler(analysisService services.AnalysisServiceInterface) *Anal
 }
 
 // StartAnalysis starts an analysis job
-func (h *AnalysisHandler) StartAnalysis(c *gin.Context) {
-	correlationID := getCorrelationID(c)
-	transcriptIDParam := c.Param("transcript_id")
+func (h *AnalysisHandler) StartAnalysis(w http.ResponseWriter, r *http.Request) {
+	correlationID := getCorrelationID(r)
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	
+	// Extract transcript ID from path like /api/analyze/123
+	transcriptIDParam, err := extractIDFromPath(r.URL.Path, "/api/analyze/")
+	if err != nil {
+		writeErrorWithCorrelation(w, http.StatusBadRequest, "INVALID_PATH", "Invalid analysis path", correlationID)
+		return
+	}
 	
 	logger.Log.WithFields(map[string]interface{}{
 		"correlation_id": correlationID,
 		"transcript_id":  transcriptIDParam,
-		"client_ip":      c.ClientIP(),
+		"client_ip":      getClientIP(r),
 	}).Info("Analysis job request received")
 	
-	transcriptID, err := uuid.Parse(transcriptIDParam)
+	transcriptID, err := parseUUIDParam(transcriptIDParam)
 	if err != nil {
 		errMsg := "Invalid transcript ID format"
 		logger.Log.WithFields(map[string]interface{}{
@@ -40,7 +49,7 @@ func (h *AnalysisHandler) StartAnalysis(c *gin.Context) {
 			"error":             err.Error(),
 		}).Error("Invalid transcript ID format")
 		
-		c.JSON(http.StatusBadRequest, gin.H{
+		writeJSON(w,http.StatusBadRequest, map[string]interface{}{
 			"error": map[string]interface{}{
 				"code":           "INVALID_UUID",
 				"message":        errMsg,
@@ -76,7 +85,7 @@ func (h *AnalysisHandler) StartAnalysis(c *gin.Context) {
 			"operation":     "analysis_job_creation",
 		})
 
-		c.JSON(statusCode, gin.H{
+		writeJSON(w,statusCode, map[string]interface{}{
 			"error": map[string]interface{}{
 				"code":           errorCode,
 				"message":        err.Error(),
@@ -93,17 +102,29 @@ func (h *AnalysisHandler) StartAnalysis(c *gin.Context) {
 		"status":         response.Status,
 	}).Info("Analysis job created successfully")
 
-	c.JSON(http.StatusOK, response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // GetJobStatus returns job status
-func (h *AnalysisHandler) GetJobStatus(c *gin.Context) {
-	correlationID := getCorrelationID(c)
-	jobIDParam := c.Param("job_id")
+func (h *AnalysisHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
+	correlationID := getCorrelationID(r)
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	
+	// Extract job ID from path like /api/jobs/123/status
+	jobIDParam, err := extractIDFromPath(r.URL.Path, "/api/jobs/")
+	if err != nil {
+		writeErrorWithCorrelation(w, http.StatusBadRequest, "INVALID_PATH", "Invalid job path", correlationID)
+		return
+	}
+	// Remove /status suffix if present
+	jobIDParam = strings.TrimSuffix(jobIDParam, "/status")
 	
 	jobID, err := uuid.Parse(jobIDParam)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		writeJSON(w,http.StatusBadRequest, map[string]interface{}{
 			"error": map[string]interface{}{
 				"code":    "INVALID_UUID",
 				"message": "Invalid job ID format",
@@ -129,7 +150,7 @@ func (h *AnalysisHandler) GetJobStatus(c *gin.Context) {
 			"operation":   "get_job_status",
 		})
 
-		c.JSON(statusCode, gin.H{
+		writeJSON(w,statusCode, map[string]interface{}{
 			"error": map[string]interface{}{
 				"code":           errorCode,
 				"message":        err.Error(),
@@ -139,17 +160,27 @@ func (h *AnalysisHandler) GetJobStatus(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // GetAnalysisResults returns complete analysis results
-func (h *AnalysisHandler) GetAnalysisResults(c *gin.Context) {
-	correlationID := getCorrelationID(c)
-	analysisIDParam := c.Param("analysis_id")
+func (h *AnalysisHandler) GetAnalysisResults(w http.ResponseWriter, r *http.Request) {
+	correlationID := getCorrelationID(r)
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+	
+	// Extract analysis ID from path like /api/results/123
+	analysisIDParam, err := extractIDFromPath(r.URL.Path, "/api/results/")
+	if err != nil {
+		writeErrorWithCorrelation(w, http.StatusBadRequest, "INVALID_PATH", "Invalid analysis path", correlationID)
+		return
+	}
 	
 	analysisID, err := uuid.Parse(analysisIDParam)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		writeJSON(w,http.StatusBadRequest, map[string]interface{}{
 			"error": map[string]interface{}{
 				"code":    "INVALID_UUID",
 				"message": "Invalid analysis ID format",
@@ -175,7 +206,7 @@ func (h *AnalysisHandler) GetAnalysisResults(c *gin.Context) {
 			"operation":   "get_analysis_results",
 		})
 
-		c.JSON(statusCode, gin.H{
+		writeJSON(w,statusCode, map[string]interface{}{
 			"error": map[string]interface{}{
 				"code":           errorCode,
 				"message":        err.Error(),
@@ -185,13 +216,19 @@ func (h *AnalysisHandler) GetAnalysisResults(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // ListAnalysisResults returns paginated list of analysis results
-func (h *AnalysisHandler) ListAnalysisResults(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+func (h *AnalysisHandler) ListAnalysisResults(w http.ResponseWriter, r *http.Request) {
+	// Handle both /api/results/ and /api/results
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	page := getQueryParamInt(r, "page", 1)
+	perPage := getQueryParamInt(r, "per_page", 20)
 
 	if page < 1 {
 		page = 1
@@ -207,16 +244,14 @@ func (h *AnalysisHandler) ListAnalysisResults(c *gin.Context) {
 			"page":      page,
 			"per_page":  perPage,
 		})
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": map[string]interface{}{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to retrieve analysis results",
-			},
-		})
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve analysis results")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	// Set CORS header directly (this was the original fix for CORS issue)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"results":  results,
 		"total":    total,
 		"page":     page,

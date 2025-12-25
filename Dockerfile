@@ -14,8 +14,8 @@ RUN go mod download
 COPY . .
 
 # Build the applications
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o worker ./cmd/worker
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -o worker ./cmd/worker
 
 # Runtime stage
 FROM alpine:latest
@@ -31,7 +31,7 @@ COPY --from=builder /app/worker .
 RUN mkdir -p /app/storage/transcripts
 
 # Expose port
-EXPOSE 8001
+EXPOSE 8000
 
 # Run the binary
 CMD ["./main"]

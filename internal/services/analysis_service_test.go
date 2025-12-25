@@ -38,7 +38,7 @@ func setupAnalysisTestConfig(t *testing.T) *config.Config {
 		AnthropicAPIKey:    "test-key",
 		SerperAPIKey:       "test-key",
 		DatabaseURL:        "sqlite://:memory:",
-		ServerPort:         "8001",
+		ServerPort:         "8000",
 		LogLevel:           "DEBUG",
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os/signal"
 	"syscall"
@@ -14,7 +15,6 @@ import (
 	"backend-golang/pkg/kafka"
 	"backend-golang/pkg/logger"
 
-	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -174,57 +174,39 @@ func maskDatabaseURL(dbURL string) string {
 	return "***masked***"
 }
 
-func setupRouter(cfg *config.Config, transcriptHandler *handlers.TranscriptHandler, analysisHandler *handlers.AnalysisHandler) *gin.Engine {
-	// Set Gin mode
-	if cfg.LogLevel == "DEBUG" {
-		gin.SetMode(gin.DebugMode)
-	} else {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
-	router := gin.New()
-
-	// Add middleware
-	router.Use(middleware.CORSMiddleware(cfg.CORSOrigins))
-	router.Use(middleware.RequestIDMiddleware())
-	router.Use(middleware.LoggingMiddleware())
-	router.Use(gin.Recovery())
+func setupRouter(cfg *config.Config, transcriptHandler *handlers.TranscriptHandler, analysisHandler *handlers.AnalysisHandler) http.Handler {
+	mux := http.NewServeMux()
 
 	// Health check endpoint
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		response := map[string]interface{}{
 			"status":  "healthy",
 			"service": "podcast-analyzer-go",
 			"version": "1.0.0",
-		})
+		}
+		json.NewEncoder(w).Encode(response)
 	})
 
-	// API routes
-	api := router.Group("/api")
-	{
-		// Transcript routes
-		transcripts := api.Group("/transcripts")
-		{
-			transcripts.POST("/", transcriptHandler.UploadTranscript)
-			transcripts.GET("/", transcriptHandler.GetTranscripts)
-			transcripts.GET("/:id", transcriptHandler.GetTranscript)
-			transcripts.DELETE("/:id", transcriptHandler.DeleteTranscript)
-		}
+	// Register converted handlers
+	mux.HandleFunc("/api/transcripts/", transcriptHandler.UploadTranscript)
+	// mux.HandleFunc("/api/transcripts", transcriptHandler.GetTranscripts) // TODO: Convert
+	// mux.HandleFunc("/api/analyze/", analysisHandler.StartAnalysis) // TODO: Convert
+	// mux.HandleFunc("/api/jobs/", analysisHandler.GetJobStatus) // TODO: Convert
+	mux.HandleFunc("/api/results/", analysisHandler.ListAnalysisResults)
+	mux.HandleFunc("/api/results", analysisHandler.ListAnalysisResults)
 
-		// Analysis routes
-		api.POST("/analyze/:transcript_id", analysisHandler.StartAnalysis)
-		
-		jobs := api.Group("/jobs")
-		{
-			jobs.GET("/:job_id/status", analysisHandler.GetJobStatus)
-		}
+	// Chain middleware
+	handler := middleware.CORSMiddleware(cfg.CORSOrigins)(mux)
+	handler = middleware.RequestIDMiddleware()(handler)
+	handler = middleware.LoggingMiddleware()(handler)
+	handler = middleware.RecoveryMiddleware()(handler)
 
-		results := api.Group("/results")
-		{
-			results.GET("/", analysisHandler.ListAnalysisResults)
-			results.GET("/:analysis_id", analysisHandler.GetAnalysisResults)
-		}
-	}
-
-	return router
+	return handler
 }
