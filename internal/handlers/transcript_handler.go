@@ -1,97 +1,133 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
-	"backend-golang/internal/services"
-	"backend-golang/pkg/logger"
+	"podcast-analyzer/internal/models"
+	"podcast-analyzer/internal/services"
+	"podcast-analyzer/internal/logger"
+	"podcast-analyzer/internal/utils"
+
+	"github.com/google/uuid"
 )
 
-type TranscriptHandler struct {
-	transcriptService services.TranscriptServiceInterface
+// TranscriptServiceInterface defines the interface for transcript service
+type TranscriptServiceInterface interface {
+	UploadTranscript(req *services.UploadTranscriptRequest, correlationID string) (*services.UploadTranscriptResponse, error)
+	GetTranscripts(page, perPage int) ([]*models.Transcript, int64, error)
+	GetTranscript(id uuid.UUID) (*models.Transcript, error)
+	DeleteTranscript(id uuid.UUID, correlationID string) error
 }
 
-func NewTranscriptHandler(transcriptService services.TranscriptServiceInterface) *TranscriptHandler {
+type TranscriptHandler struct {
+	transcriptService TranscriptServiceInterface
+}
+
+func NewTranscriptHandler(transcriptService TranscriptServiceInterface) *TranscriptHandler {
 	return &TranscriptHandler{
 		transcriptService: transcriptService,
 	}
 }
 
+// validateUploadRequest validates the upload request and extracts file
+func (h *TranscriptHandler) validateUploadRequest(r *http.Request, correlationID string) (*services.UploadTranscriptRequest, error) {
+	// Parse multipart form
+	err := r.ParseMultipartForm(32 << 20) // 32 MB max memory
+	if err != nil {
+		logger.Log.WithFields(map[string]interface{}{
+			"correlation_id": correlationID,
+			"error":          err.Error(),
+		}).Error("Form parsing failed")
+		return nil, fmt.Errorf("failed to parse multipart form: %w", err)
+	}
+
+	file, fileHeader, err := r.FormFile("file")
+	if err != nil {
+		logger.Log.WithFields(map[string]interface{}{
+			"correlation_id": correlationID,
+			"error":          err.Error(),
+		}).Error("File upload validation failed")
+		return nil, fmt.Errorf("no file uploaded or invalid file: %w", err)
+	}
+	defer file.Close()
+
+	return &services.UploadTranscriptRequest{
+		File: fileHeader,
+	}, nil
+}
+
+// handleServiceError determines error type and status code for service errors
+func (h *TranscriptHandler) handleServiceError(err error) (int, string) {
+	if utils.Contains(err.Error(), "duplicate") {
+		return http.StatusConflict, "DUPLICATE_TRANSCRIPT"
+	}
+	return http.StatusBadRequest, "FILE_VALIDATION_ERROR"
+}
+
+// logUploadRequest logs the start of an upload request
+func (h *TranscriptHandler) logUploadRequest(r *http.Request, correlationID string) {
+	logger.Log.WithFields(map[string]interface{}{
+		"correlation_id": correlationID,
+		"client_ip":      utils.GetClientIP(r),
+		"user_agent":     r.UserAgent(),
+	}).Info("Upload transcript request received")
+}
+
+// logUploadSuccess logs successful upload completion
+func (h *TranscriptHandler) logUploadSuccess(response *services.UploadTranscriptResponse, correlationID string) {
+	logger.Log.WithFields(map[string]interface{}{
+		"correlation_id":  correlationID,
+		"transcript_id":   response.TranscriptID,
+		"filename":        response.Filename,
+		"word_count":      response.WordCount,
+	}).Info("Upload completed successfully")
+}
+
 // UploadTranscript handles file upload
 func (h *TranscriptHandler) UploadTranscript(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	utils.SetCORSHeaders(w)
+	
 	// Only handle POST and multipart uploads
 	if r.Method != http.MethodPost {
-		if matched, _ := matchPath(r.URL.Path, "/api/transcripts/"); matched {
-			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		if matched, _ := utils.MatchPath(r.URL.Path, "/api/transcripts/"); matched {
+			utils.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 			return
 		}
 		// If not a transcript upload path, skip
 		return
 	}
 
-	correlationID := getCorrelationID(r)
-	
-	// Log request start
-	logger.Log.WithFields(map[string]interface{}{
-		"correlation_id": correlationID,
-		"client_ip":      getClientIP(r),
-		"user_agent":     r.UserAgent(),
-	}).Info("Upload transcript request received")
+	correlationID := utils.GetCorrelationID(r)
+	h.logUploadRequest(r, correlationID)
 
-	// Parse multipart form
-	err := r.ParseMultipartForm(32 << 20) // 32 MB max memory
+	// Validate upload request
+	req, err := h.validateUploadRequest(r, correlationID)
 	if err != nil {
-		errMsg := "Failed to parse multipart form"
-		logger.Log.WithFields(map[string]interface{}{
-			"correlation_id": correlationID,
-			"error":          err.Error(),
-		}).Error("Form parsing failed")
-		
-		writeErrorWithCorrelation(w, http.StatusBadRequest, "FORM_PARSE_ERROR", errMsg, correlationID)
+		utils.WriteErrorWithCorrelation(w, http.StatusBadRequest, "FORM_PARSE_ERROR", err.Error(), correlationID)
 		return
 	}
 
-	file, fileHeader, err := r.FormFile("file")
-	if err != nil {
-		errMsg := "No file uploaded or invalid file"
-		logger.Log.WithFields(map[string]interface{}{
-			"correlation_id": correlationID,
-			"error":          err.Error(),
-		}).Error("File upload validation failed")
-		
-		writeErrorWithCorrelation(w, http.StatusBadRequest, "FILE_VALIDATION_ERROR", errMsg, correlationID)
-		return
-	}
-	defer file.Close()
-
 	logger.Log.WithFields(map[string]interface{}{
 		"correlation_id": correlationID,
-		"filename":       fileHeader.Filename,
-		"file_size":      fileHeader.Size,
+		"filename":       req.File.Filename,
+		"file_size":      req.File.Size,
 	}).Info("Processing uploaded file")
 
-	req := &services.UploadTranscriptRequest{
-		File: fileHeader,
-	}
-
+	// Process upload through service
 	response, err := h.transcriptService.UploadTranscript(req, correlationID)
 	if err != nil {
-		statusCode := http.StatusBadRequest
-		errorCode := "FILE_VALIDATION_ERROR"
-
-		if contains(err.Error(), "duplicate") {
-			statusCode = http.StatusConflict
-			errorCode = "DUPLICATE_TRANSCRIPT"
-		}
+		statusCode, errorCode := h.handleServiceError(err)
 
 		logger.LogErrorWithStackAndCorrelation(err, correlationID, map[string]interface{}{
 			"error_code":  errorCode,
 			"status_code": statusCode,
-			"filename":    fileHeader.Filename,
-			"file_size":   fileHeader.Size,
+			"filename":    req.File.Filename,
+			"file_size":   req.File.Size,
 			"operation":   "upload_transcript",
 		})
 
-		writeJSON(w, statusCode, map[string]interface{}{
+		utils.WriteJSON(w, statusCode, map[string]interface{}{
 			"error": map[string]interface{}{
 				"code":           errorCode,
 				"message":        err.Error(),
@@ -101,25 +137,22 @@ func (h *TranscriptHandler) UploadTranscript(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	logger.Log.WithFields(map[string]interface{}{
-		"correlation_id":  correlationID,
-		"transcript_id":   response.TranscriptID,
-		"filename":        response.Filename,
-		"word_count":      response.WordCount,
-	}).Info("Upload completed successfully")
-
-	writeJSON(w, http.StatusOK, response)
+	h.logUploadSuccess(response, correlationID)
+	utils.WriteJSON(w, http.StatusOK, response)
 }
 
 // GetTranscripts returns paginated list of transcripts
 func (h *TranscriptHandler) GetTranscripts(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	utils.SetCORSHeaders(w)
+	
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		utils.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
 
-	page := getQueryParamInt(r, "page", 1)
-	perPage := getQueryParamInt(r, "per_page", 20)
+	page := utils.GetQueryParamInt(r, "page", 1)
+	perPage := utils.GetQueryParamInt(r, "per_page", 20)
 
 	if page < 1 {
 		page = 1
@@ -135,11 +168,11 @@ func (h *TranscriptHandler) GetTranscripts(w http.ResponseWriter, r *http.Reques
 			"page":      page,
 			"per_page":  perPage,
 		})
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve transcripts")
+		utils.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve transcripts")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	utils.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"transcripts": transcripts,
 		"total":       total,
 		"page":        page,
@@ -149,21 +182,24 @@ func (h *TranscriptHandler) GetTranscripts(w http.ResponseWriter, r *http.Reques
 
 // GetTranscript returns a single transcript
 func (h *TranscriptHandler) GetTranscript(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	utils.SetCORSHeaders(w)
+	
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		utils.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
 
 	// Extract ID from path like /api/transcripts/123
-	idStr, err := extractIDFromPath(r.URL.Path, "/api/transcripts/")
+	idStr, err := utils.ExtractIDFromPath(r.URL.Path, "/api/transcripts/")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_PATH", "Invalid transcript path")
+		utils.WriteError(w, http.StatusBadRequest, "INVALID_PATH", "Invalid transcript path")
 		return
 	}
 
-	id, err := parseUUIDParam(idStr)
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_UUID", "Invalid transcript ID format")
+		utils.WriteError(w, http.StatusBadRequest, "INVALID_UUID", "Invalid transcript ID format")
 		return
 	}
 
@@ -172,7 +208,7 @@ func (h *TranscriptHandler) GetTranscript(w http.ResponseWriter, r *http.Request
 		statusCode := http.StatusNotFound
 		errorCode := "TRANSCRIPT_NOT_FOUND"
 
-		if !contains(err.Error(), "not found") {
+		if !utils.Contains(err.Error(), "not found") {
 			statusCode = http.StatusInternalServerError
 			errorCode = "INTERNAL_ERROR"
 		}
@@ -184,32 +220,35 @@ func (h *TranscriptHandler) GetTranscript(w http.ResponseWriter, r *http.Request
 			"operation":     "get_transcript",
 		})
 
-		writeError(w, statusCode, errorCode, err.Error())
+		utils.WriteError(w, statusCode, errorCode, err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, transcript)
+	utils.WriteJSON(w, http.StatusOK, transcript)
 }
 
 // DeleteTranscript deletes a transcript
 func (h *TranscriptHandler) DeleteTranscript(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	utils.SetCORSHeaders(w)
+	
 	if r.Method != http.MethodDelete {
-		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		utils.WriteError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
 
-	correlationID := getCorrelationID(r)
+	correlationID := utils.GetCorrelationID(r)
 	
 	// Extract ID from path
-	idStr, err := extractIDFromPath(r.URL.Path, "/api/transcripts/")
+	idStr, err := utils.ExtractIDFromPath(r.URL.Path, "/api/transcripts/")
 	if err != nil {
-		writeErrorWithCorrelation(w, http.StatusBadRequest, "INVALID_PATH", "Invalid transcript path", correlationID)
+		utils.WriteErrorWithCorrelation(w, http.StatusBadRequest, "INVALID_PATH", "Invalid transcript path", correlationID)
 		return
 	}
 
-	id, err := parseUUIDParam(idStr)
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		writeErrorWithCorrelation(w, http.StatusBadRequest, "INVALID_UUID", "Invalid transcript ID format", correlationID)
+		utils.WriteErrorWithCorrelation(w, http.StatusBadRequest, "INVALID_UUID", "Invalid transcript ID format", correlationID)
 		return
 	}
 
@@ -217,7 +256,7 @@ func (h *TranscriptHandler) DeleteTranscript(w http.ResponseWriter, r *http.Requ
 		statusCode := http.StatusNotFound
 		errorCode := "TRANSCRIPT_NOT_FOUND"
 
-		if !contains(err.Error(), "not found") {
+		if !utils.Contains(err.Error(), "not found") {
 			statusCode = http.StatusInternalServerError
 			errorCode = "INTERNAL_ERROR"
 		}
@@ -229,11 +268,11 @@ func (h *TranscriptHandler) DeleteTranscript(w http.ResponseWriter, r *http.Requ
 			"operation":     "delete_transcript",
 		})
 
-		writeErrorWithCorrelation(w, statusCode, errorCode, err.Error(), correlationID)
+		utils.WriteErrorWithCorrelation(w, statusCode, errorCode, err.Error(), correlationID)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	utils.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Transcript deleted successfully",
 	})
 }

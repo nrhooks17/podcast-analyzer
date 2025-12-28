@@ -18,6 +18,12 @@
 go.work
 go.work.sum
 
+# Project-specific compiled binaries
+/server
+/worker
+server
+worker
+
 # Go test files
 .cover
 .coverage
@@ -78,44 +84,15 @@ temp/
 files/
 transcripts/
 
-# Docker
-.dockerignore
-
 # Documentation and Claude files
 CLAUDE.md
 *.claude
+claude.md
 .claude/
 AI_LOGS.md
 README_AI.md
 DEPLOYMENT.md
 
-# Python artifacts (for mixed projects)
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-.pytest_cache/
-.tox/
-.nox/
-.hypothesis/
-
-# Node.js artifacts (for frontend)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.npm
-.yarn-integrity
-frontend/build/
-frontend/dist/
-frontend/.next/
-
-# Build directories
-/build/
-/dist/
-/out/
 
 # Configuration files with secrets
 config.json
@@ -128,14 +105,3 @@ secrets.json
 *.p12
 *.pfx
 
-# Kafka and message queue files
-kafka-logs/
-zookeeper/
-.kafka/
-
-# Backup files
-*.bak
-*.backup
-*~
-.#*
-\#*#

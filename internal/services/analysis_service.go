@@ -1,43 +1,29 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"backend-golang/internal/config"
-	"backend-golang/internal/models"
-	"backend-golang/pkg/logger"
 	"time"
+	"podcast-analyzer/internal/config"
+	"podcast-analyzer/internal/models"
+	"podcast-analyzer/internal/logger"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-// AnalysisServiceInterface defines the interface for analysis service operations
-type AnalysisServiceInterface interface {
-	CreateAnalysisJob(req *AnalysisJobRequest, correlationID string) (*AnalysisJobResponse, error)
-	GetJobStatus(jobID uuid.UUID, correlationID string) (*JobStatusResponse, error)
-	ListAnalysisResults(page, perPage int) ([]*AnalysisResultsResponse, int64, error)
-	GetAnalysisResults(analysisID uuid.UUID, correlationID string) (*AnalysisResultsResponse, error)
-	UpdateJobStatus(jobID uuid.UUID, status string, errorMessage string) error
-}
 
-// KafkaServiceInterface defines the interface for Kafka operations
-type KafkaServiceInterface interface {
-	PublishAnalysisJob(message interface{}) error
-	Close() error
-}
 
 type AnalysisService struct {
-	db           *gorm.DB
-	config       *config.Config
-	kafkaService KafkaServiceInterface
+	db     *gorm.DB
+	config *config.Config
 }
 
-func NewAnalysisService(db *gorm.DB, cfg *config.Config, kafkaService KafkaServiceInterface) *AnalysisService {
+func NewAnalysisService(db *gorm.DB, cfg *config.Config) *AnalysisService {
 	return &AnalysisService{
-		db:           db,
-		config:       cfg,
-		kafkaService: kafkaService,
+		db:     db,
+		config: cfg,
 	}
 }
 
@@ -90,11 +76,20 @@ type FactCheckResultResponse struct {
 	CheckedAt  time.Time `json:"checked_at"`
 }
 
-// KafkaMessage represents the message sent to Kafka
-type KafkaMessage struct {
-	JobID        uuid.UUID `json:"job_id"`
-	TranscriptID uuid.UUID `json:"transcript_id"`
-	CreatedAt    time.Time `json:"created_at"`
+// AnalysisResults represents the results from AI agents
+type AnalysisResults struct {
+	Summary    string                 `json:"summary"`
+	Takeaways  map[string]interface{} `json:"takeaways"`
+	FactChecks []FactCheckResult      `json:"fact_checks"`
+}
+
+// FactCheckResult represents individual fact-check results
+type FactCheckResult struct {
+	Claim      string                 `json:"claim"`
+	Verdict    string                 `json:"verdict"`
+	Confidence float64                `json:"confidence"`
+	Evidence   string                 `json:"evidence"`
+	Sources    map[string]interface{} `json:"sources"`
 }
 
 // CreateAnalysisJob creates a new analysis job
@@ -131,23 +126,11 @@ func (s *AnalysisService) CreateAnalysisJob(req *AnalysisJobRequest, correlation
 		return nil, fmt.Errorf("failed to create analysis job: %w", err)
 	}
 
-	// Send message to Kafka
-	message := KafkaMessage{
-		JobID:        analysis.JobID,
-		TranscriptID: analysis.TranscriptID,
-		CreatedAt:    analysis.CreatedAt,
-	}
-
-	if err := s.kafkaService.PublishAnalysisJob(message); err != nil {
-		logger.LogErrorWithStackAndCorrelation(err, correlationID, map[string]interface{}{
-			"job_id":        analysis.JobID,
-			"transcript_id": req.TranscriptID,
-			"operation":     "publish_analysis_job_kafka",
-		})
-		// Update status to failed
-		s.db.Model(analysis).Update("status", "failed")
-		return nil, fmt.Errorf("failed to queue analysis job: %w", err)
-	}
+	// Launch background processing directly
+	go func() {
+		ctx := context.Background()
+		s.processAnalysisJob(ctx, analysis.JobID, analysis.TranscriptID, correlationID)
+	}()
 
 	log.WithFields(map[string]interface{}{
 		"job_id":        analysis.JobID,
@@ -416,3 +399,4 @@ func (s *AnalysisService) UpdateJobStatus(jobID uuid.UUID, status string, errorM
 
 	return nil
 }
+

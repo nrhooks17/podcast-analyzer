@@ -10,142 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCORSMiddleware(t *testing.T) {
-	tests := []struct {
-		name            string
-		allowedOrigins  []string
-		requestOrigin   string
-		method          string
-		expectedStatus  int
-		expectOriginSet bool
-		expectedOrigin  string
-	}{
-		{
-			name:            "allowed origin",
-			allowedOrigins:  []string{"https://example.com", "https://test.com"},
-			requestOrigin:   "https://example.com",
-			method:          "GET",
-			expectedStatus:  http.StatusOK,
-			expectOriginSet: true,
-			expectedOrigin:  "https://example.com",
-		},
-		{
-			name:            "wildcard origin",
-			allowedOrigins:  []string{"*"},
-			requestOrigin:   "https://any-origin.com",
-			method:          "GET",
-			expectedStatus:  http.StatusOK,
-			expectOriginSet: true,
-			expectedOrigin:  "https://any-origin.com",
-		},
-		{
-			name:            "disallowed origin",
-			allowedOrigins:  []string{"https://example.com"},
-			requestOrigin:   "https://malicious.com",
-			method:          "GET",
-			expectedStatus:  http.StatusOK,
-			expectOriginSet: false,
-		},
-		{
-			name:            "options request",
-			allowedOrigins:  []string{"https://example.com"},
-			requestOrigin:   "https://example.com",
-			method:          "OPTIONS",
-			expectedStatus:  http.StatusNoContent,
-			expectOriginSet: true,
-			expectedOrigin:  "https://example.com",
-		},
-		{
-			name:            "no origin header",
-			allowedOrigins:  []string{"https://example.com"},
-			requestOrigin:   "",
-			method:          "GET",
-			expectedStatus:  http.StatusOK,
-			expectOriginSet: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create test handler
-			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(map[string]string{"message": "test"})
-			})
-
-			// Wrap with CORS middleware
-			handler := CORSMiddleware(tt.allowedOrigins)(testHandler)
-
-			req := httptest.NewRequest(tt.method, "/test", nil)
-			if tt.requestOrigin != "" {
-				req.Header.Set("Origin", tt.requestOrigin)
-			}
-
-			recorder := httptest.NewRecorder()
-			handler.ServeHTTP(recorder, req)
-
-			assert.Equal(t, tt.expectedStatus, recorder.Code)
-
-			// Check CORS headers
-			if tt.expectOriginSet {
-				assert.Equal(t, tt.expectedOrigin, recorder.Header().Get("Access-Control-Allow-Origin"))
-			} else {
-				assert.Empty(t, recorder.Header().Get("Access-Control-Allow-Origin"))
-			}
-
-			// Check other CORS headers are always set (except for OPTIONS which returns immediately)
-			if tt.method != "OPTIONS" {
-				assert.Equal(t, "GET, POST, PUT, DELETE, OPTIONS", recorder.Header().Get("Access-Control-Allow-Methods"))
-				assert.Equal(t, "Accept, Authorization, Content-Type, X-CSRF-Token, X-Correlation-ID, X-Request-ID", recorder.Header().Get("Access-Control-Allow-Headers"))
-				assert.Equal(t, "Link", recorder.Header().Get("Access-Control-Expose-Headers"))
-				assert.Equal(t, "300", recorder.Header().Get("Access-Control-Max-Age"))
-			}
-		})
-	}
-}
-
-func TestCORSMiddleware_OriginMatching(t *testing.T) {
-	allowedOrigins := []string{"https://example.com", "https://test.com"}
-	
-	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"message": "test"})
-	})
-
-	handler := CORSMiddleware(allowedOrigins)(testHandler)
-
-	tests := []struct {
-		name          string
-		origin        string
-		expectAllowed bool
-	}{
-		{"exact match first", "https://example.com", true},
-		{"exact match second", "https://test.com", true},
-		{"subdomain not allowed", "https://sub.example.com", false},
-		{"different protocol", "http://example.com", false},
-		{"partial match", "https://example.com.evil.com", false},
-		{"case sensitive", "https://Example.com", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/test", nil)
-			req.Header.Set("Origin", tt.origin)
-
-			recorder := httptest.NewRecorder()
-			handler.ServeHTTP(recorder, req)
-
-			if tt.expectAllowed {
-				assert.Equal(t, tt.origin, recorder.Header().Get("Access-Control-Allow-Origin"))
-			} else {
-				assert.Empty(t, recorder.Header().Get("Access-Control-Allow-Origin"))
-			}
-		})
-	}
-}
-
 func TestRequestIDMiddleware(t *testing.T) {
 	var capturedCorrelationID string
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -295,22 +159,16 @@ func TestMiddlewareChaining(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]string{"message": "test"})
 	})
 	
-	// Chain all middleware together
-	allowedOrigins := []string{"https://example.com"}
-	handler := CORSMiddleware(allowedOrigins)(testHandler)
-	handler = RequestIDMiddleware()(handler)
+	// Chain middleware together (CORS is handled in utils.SetCORSHeaders)
+	handler := RequestIDMiddleware()(testHandler)
 	handler = LoggingMiddleware()(handler)
 
 	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("Origin", "https://example.com")
 	
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
-	
-	// Check CORS headers
-	assert.Equal(t, "https://example.com", recorder.Header().Get("Access-Control-Allow-Origin"))
 	
 	// Check correlation ID was generated and set
 	assert.NotEmpty(t, capturedCorrelationID)

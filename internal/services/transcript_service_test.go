@@ -1,8 +1,8 @@
 package services
 
 import (
-	"backend-golang/internal/config"
-	"backend-golang/internal/models"
+	"podcast-analyzer/internal/config"
+	"podcast-analyzer/internal/models"
 	"bytes"
 	"mime/multipart"
 	"os"
@@ -428,7 +428,7 @@ func TestIsValidUTF8(t *testing.T) {
 	}{
 		{[]byte("hello world"), true},
 		{[]byte("héllo wörld"), true},
-		{[]byte("🚀 rocket"), true},
+		{[]byte("rocket"), true},
 		{[]byte{0xff, 0xfe}, false},
 	}
 

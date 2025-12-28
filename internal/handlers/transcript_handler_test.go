@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"backend-golang/internal/models"
-	"backend-golang/internal/services"
+	"podcast-analyzer/internal/models"
+	"podcast-analyzer/internal/services"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -16,13 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TranscriptServiceInterface for testing
-type TranscriptServiceInterface interface {
-	UploadTranscript(req *services.UploadTranscriptRequest, correlationID string) (*services.UploadTranscriptResponse, error)
-	GetTranscripts(page, perPage int) ([]*models.Transcript, int64, error)
-	GetTranscript(id uuid.UUID) (*models.Transcript, error)
-	DeleteTranscript(id uuid.UUID, correlationID string) error
-}
 
 // MockTranscriptService for testing
 type MockTranscriptService struct {
@@ -178,7 +171,7 @@ func TestTranscriptHandler_UploadTranscript_NoFile(t *testing.T) {
 	err := json.Unmarshal(recorder.Body.Bytes(), &response)
 	require.NoError(t, err)
 	errorObj := response["error"].(map[string]interface{})
-	assert.Contains(t, errorObj["message"].(string), "Failed to parse multipart form")
+	assert.Contains(t, errorObj["message"].(string), "failed to parse multipart form")
 }
 
 func TestTranscriptHandler_GetTranscripts(t *testing.T) {

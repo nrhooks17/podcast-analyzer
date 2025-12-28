@@ -1,32 +1,17 @@
 package services
 
 import (
-	"backend-golang/internal/config"
-	"backend-golang/internal/models"
+	"podcast-analyzer/internal/config"
+	"podcast-analyzer/internal/models"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
-// MockKafkaService for testing
-type MockKafkaService struct {
-	mock.Mock
-}
-
-func (m *MockKafkaService) PublishAnalysisJob(message interface{}) error {
-	args := m.Called(message)
-	return args.Error(0)
-}
-
-func (m *MockKafkaService) Close() error {
-	args := m.Called()
-	return args.Error(0)
-}
 
 func setupAnalysisTestDB(t *testing.T) *gorm.DB {
 	return setupTestDB(t)
@@ -34,20 +19,18 @@ func setupAnalysisTestDB(t *testing.T) *gorm.DB {
 
 func setupAnalysisTestConfig(t *testing.T) *config.Config {
 	return &config.Config{
-		KafkaTopicAnalysis: "analysis-topic",
-		AnthropicAPIKey:    "test-key",
-		SerperAPIKey:       "test-key",
-		DatabaseURL:        "sqlite://:memory:",
-		ServerPort:         "8000",
-		LogLevel:           "DEBUG",
+		AnthropicAPIKey: "test-key",
+		SerperAPIKey:    "test-key",
+		DatabaseURL:     "sqlite://:memory:",
+		ServerPort:      "8000",
+		LogLevel:        "DEBUG",
 	}
 }
 
 func TestAnalysisService_CreateAnalysisJob(t *testing.T) {
 	db := setupAnalysisTestDB(t)
 	cfg := setupAnalysisTestConfig(t)
-	mockKafka := &MockKafkaService{}
-	service := NewAnalysisService(db, cfg, mockKafka)
+	service := NewAnalysisService(db, cfg)
 
 	// Create a test transcript
 	testTranscript := &models.Transcript{
@@ -61,8 +44,6 @@ func TestAnalysisService_CreateAnalysisJob(t *testing.T) {
 	err := db.Create(testTranscript).Error
 	require.NoError(t, err)
 
-	// Mock successful Kafka publish
-	mockKafka.On("PublishAnalysisJob", mock.Anything).Return(nil)
 
 	req := &AnalysisJobRequest{
 		TranscriptID: testTranscript.ID,
@@ -83,15 +64,13 @@ func TestAnalysisService_CreateAnalysisJob(t *testing.T) {
 	assert.Equal(t, testTranscript.ID, analysisResult.TranscriptID)
 	assert.Equal(t, "pending", analysisResult.Status)
 
-	// Verify Kafka message was published
-	mockKafka.AssertExpectations(t)
+	// Note: Processing now happens in background goroutine
 }
 
 func TestAnalysisService_CreateAnalysisJob_TranscriptNotFound(t *testing.T) {
 	db := setupAnalysisTestDB(t)
 	cfg := setupAnalysisTestConfig(t)
-	mockKafka := &MockKafkaService{}
-	service := NewAnalysisService(db, cfg, mockKafka)
+	service := NewAnalysisService(db, cfg)
 
 	nonExistentID := uuid.New()
 	req := &AnalysisJobRequest{
@@ -103,15 +82,12 @@ func TestAnalysisService_CreateAnalysisJob_TranscriptNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 	assert.Nil(t, resp)
 
-	// Kafka should not be called
-	mockKafka.AssertNotCalled(t, "PublishAnalysisJob")
 }
 
 func TestAnalysisService_CreateAnalysisJob_DuplicatePrevention(t *testing.T) {
 	db := setupAnalysisTestDB(t)
 	cfg := setupAnalysisTestConfig(t)
-	mockKafka := &MockKafkaService{}
-	service := NewAnalysisService(db, cfg, mockKafka)
+	service := NewAnalysisService(db, cfg)
 
 	// Create a test transcript
 	testTranscript := &models.Transcript{
@@ -142,23 +118,19 @@ func TestAnalysisService_CreateAnalysisJob_DuplicatePrevention(t *testing.T) {
 		TranscriptID: testTranscript.ID,
 	}
 
-	// Mock successful Kafka publish for this test
-	mockKafka.On("PublishAnalysisJob", mock.Anything).Return(nil)
 
 	resp, err := service.CreateAnalysisJob(req, "test-correlation-id")
 	// Should succeed since there's no duplicate prevention in current implementation
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	// Kafka should be called
-	mockKafka.AssertExpectations(t)
+	// Note: Processing now happens in background goroutine
 }
 
 func TestAnalysisService_CreateAnalysisJob_KafkaError(t *testing.T) {
 	db := setupAnalysisTestDB(t)
 	cfg := setupAnalysisTestConfig(t)
-	mockKafka := &MockKafkaService{}
-	service := NewAnalysisService(db, cfg, mockKafka)
+	service := NewAnalysisService(db, cfg)
 
 	// Create a test transcript
 	testTranscript := &models.Transcript{
@@ -172,32 +144,26 @@ func TestAnalysisService_CreateAnalysisJob_KafkaError(t *testing.T) {
 	err := db.Create(testTranscript).Error
 	require.NoError(t, err)
 
-	// Mock Kafka publish failure
-	mockKafka.On("PublishAnalysisJob", mock.Anything).Return(assert.AnError)
+	// Note: With direct processing, this test scenario is no longer relevant
+	// Jobs can only fail during actual processing, not during queueing
 
 	req := &AnalysisJobRequest{
 		TranscriptID: testTranscript.ID,
 	}
 
 	resp, err := service.CreateAnalysisJob(req, "test-correlation-id")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to queue analysis job")
-	assert.Nil(t, resp)
-
-	// Verify analysis result status was set to failed (not cleaned up in current implementation)
-	var analysisResult models.AnalysisResult
-	err = db.Where("transcript_id = ?", testTranscript.ID).First(&analysisResult).Error
 	assert.NoError(t, err)
-	assert.Equal(t, "failed", analysisResult.Status)
+	assert.NotNil(t, resp)
+	assert.Equal(t, "pending", resp.Status)
 
-	mockKafka.AssertExpectations(t)
+	// Note: With direct processing, jobs are created successfully
+	// and processing happens asynchronously in background
 }
 
 func TestAnalysisService_GetJobStatus(t *testing.T) {
 	db := setupAnalysisTestDB(t)
 	cfg := setupAnalysisTestConfig(t)
-	mockKafka := &MockKafkaService{}
-	service := NewAnalysisService(db, cfg, mockKafka)
+	service := NewAnalysisService(db, cfg)
 
 	// Create test analysis result
 	testAnalysis := &models.AnalysisResult{
@@ -230,8 +196,7 @@ func TestAnalysisService_GetJobStatus(t *testing.T) {
 func TestAnalysisService_ListAnalysisResults(t *testing.T) {
 	db := setupAnalysisTestDB(t)
 	cfg := setupAnalysisTestConfig(t)
-	mockKafka := &MockKafkaService{}
-	service := NewAnalysisService(db, cfg, mockKafka)
+	service := NewAnalysisService(db, cfg)
 
 	// Create test analysis results
 	transcriptID1 := uuid.New()
@@ -317,8 +282,7 @@ func TestAnalysisService_ListAnalysisResults(t *testing.T) {
 func TestAnalysisService_GetAnalysisResults(t *testing.T) {
 	db := setupAnalysisTestDB(t)
 	cfg := setupAnalysisTestConfig(t)
-	mockKafka := &MockKafkaService{}
-	service := NewAnalysisService(db, cfg, mockKafka)
+	service := NewAnalysisService(db, cfg)
 
 	// Create test transcript
 	testTranscript := &models.Transcript{

@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -20,9 +19,6 @@ type Config struct {
 	// Serper API configuration for web search
 	SerperAPIKey string
 
-	// Kafka configuration
-	KafkaBootstrapServers string
-	KafkaTopicAnalysis    string
 
 	// File storage configuration
 	StoragePath   string
@@ -38,6 +34,7 @@ type Config struct {
 
 	// AI model configuration
 	ClaudeModel       string
+	SummaryMaxChars   int
 	SummaryMaxWords   int
 	SummaryMinWords   int
 }
@@ -51,14 +48,13 @@ func Load() (*Config, error) {
 		DatabaseURL:           getEnvWithDefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/podcast_analyzer"),
 		AnthropicAPIKey:       os.Getenv("ANTHROPIC_API_KEY"),
 		SerperAPIKey:          os.Getenv("SERPER_API_KEY"),
-		KafkaBootstrapServers: getEnvWithDefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
-		KafkaTopicAnalysis:    "analysis-jobs",
 		StoragePath:           getEnvWithDefault("STORAGE_PATH", "/app/storage/transcripts"),
 		MaxFileSize:           10 * 1024 * 1024, // 10MB
 		AllowedExts:           []string{".txt", ".json"},
 		ServerPort:            getEnvWithDefault("SERVER_PORT", "8000"), // Different port from Python backend
 		LogLevel:              getEnvWithDefault("LOG_LEVEL", "INFO"),
 		ClaudeModel:           "claude-sonnet-4-20250514",
+		SummaryMaxChars:       150,  // For social media posts
 		SummaryMaxWords:       300,
 		SummaryMinWords:       200,
 	}
@@ -85,11 +81,3 @@ func getEnvWithDefault(key, defaultValue string) string {
 	return defaultValue
 }
 
-func getEnvAsInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
-}

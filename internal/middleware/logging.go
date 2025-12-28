@@ -4,7 +4,8 @@ import (
 	"context"
 	"net/http"
 	"time"
-	"backend-golang/pkg/logger"
+	"podcast-analyzer/internal/logger"
+	"podcast-analyzer/internal/utils"
 
 	"github.com/google/uuid"
 )
@@ -38,7 +39,7 @@ func LoggingMiddleware() func(http.Handler) http.Handler {
 				"path":           r.URL.Path,
 				"status":         lrw.statusCode,
 				"latency_ms":     duration.Milliseconds(),
-				"client_ip":      getClientIP(r),
+				"client_ip":      utils.GetClientIP(r),
 				"user_agent":     r.UserAgent(),
 				"response_size":  lrw.bytesWritten,
 			}).Info("HTTP request processed")
@@ -73,7 +74,7 @@ func RecoveryMiddleware() func(http.Handler) http.Handler {
 						"panic":          err,
 						"method":         r.Method,
 						"path":           r.URL.Path,
-						"client_ip":      getClientIP(r),
+						"client_ip":      utils.GetClientIP(r),
 						"correlation_id": r.Header.Get("X-Correlation-ID"),
 					}).Error("HTTP handler panicked")
 
@@ -103,18 +104,4 @@ func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
 	n, err := lrw.ResponseWriter.Write(b)
 	lrw.bytesWritten += n
 	return n, err
-}
-
-// getClientIP extracts the real client IP address
-func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return xff
-	}
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	// Fall back to RemoteAddr
-	return r.RemoteAddr
 }

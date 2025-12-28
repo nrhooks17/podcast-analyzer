@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"backend-golang/internal/services"
+	"podcast-analyzer/internal/services"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,13 +16,6 @@ import (
 )
 
 
-// AnalysisServiceInterface for testing
-type AnalysisServiceInterface interface {
-	CreateAnalysisJob(req *services.AnalysisJobRequest, correlationID string) (*services.AnalysisJobResponse, error)
-	GetJobStatus(jobID uuid.UUID, correlationID string) (*services.JobStatusResponse, error)
-	ListAnalysisResults(page, perPage int) ([]*services.AnalysisResultsResponse, int64, error)
-	GetAnalysisResults(analysisID uuid.UUID, correlationID string) (*services.AnalysisResultsResponse, error)
-}
 
 // MockAnalysisService for testing
 type MockAnalysisService struct {
@@ -110,7 +103,7 @@ func TestAnalysisHandler_StartAnalysis(t *testing.T) {
 			transcriptID:   "invalid-uuid",
 			setupMock:      func() {},
 			expectedStatus: http.StatusBadRequest,
-			expectedError:  "Invalid transcript ID format",
+			expectedError:  "Invalid UUID format",
 		},
 	}
 

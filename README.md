@@ -7,7 +7,7 @@ A high-performance Go backend for analyzing podcast transcripts with AI-powered 
 The Go backend follows standard Go project structure:
 
 ```
-backend-golang/
+podcast-analyzer/
 ├── cmd/server/          # Application entrypoint
 ├── internal/
 │   ├── config/          # Configuration management

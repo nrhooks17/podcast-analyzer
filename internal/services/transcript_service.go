@@ -9,9 +9,9 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
-	"backend-golang/internal/config"
-	"backend-golang/internal/models"
-	"backend-golang/pkg/logger"
+	"podcast-analyzer/internal/config"
+	"podcast-analyzer/internal/models"
+	"podcast-analyzer/internal/logger"
 	"strings"
 	"time"
 
@@ -19,14 +19,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// TranscriptServiceInterface defines the interface for transcript service operations
-type TranscriptServiceInterface interface {
-	UploadTranscript(req *UploadTranscriptRequest, correlationID string) (*UploadTranscriptResponse, error)
-	GetTranscripts(page, perPage int) ([]*models.Transcript, int64, error)
-	GetTranscript(id uuid.UUID) (*models.Transcript, error)
-	DeleteTranscript(id uuid.UUID, correlationID string) error
-	ReadTranscriptContent(transcript *models.Transcript) (string, error)
-}
 
 type TranscriptService struct {
 	db     *gorm.DB
@@ -54,9 +46,8 @@ type UploadTranscriptResponse struct {
 }
 
 // UploadTranscript handles file upload and validation
-func (s *TranscriptService) UploadTranscript(req *UploadTranscriptRequest, correlationID string) (*UploadTranscriptResponse, error) {
-	log := logger.WithCorrelationID(correlationID)
-
+// validateUploadedFile validates file extension, size, and encoding
+func (s *TranscriptService) validateUploadedFile(req *UploadTranscriptRequest, correlationID string) (string, []byte, error) {
 	// Validate file extension
 	ext := strings.ToLower(filepath.Ext(req.File.Filename))
 	isValidExt := false
@@ -67,12 +58,12 @@ func (s *TranscriptService) UploadTranscript(req *UploadTranscriptRequest, corre
 		}
 	}
 	if !isValidExt {
-		return nil, fmt.Errorf("invalid file extension: %s. Allowed: %v", ext, s.config.AllowedExts)
+		return "", nil, fmt.Errorf("invalid file extension: %s. Allowed: %v", ext, s.config.AllowedExts)
 	}
 
 	// Validate file size
 	if req.File.Size > s.config.MaxFileSize {
-		return nil, fmt.Errorf("file too large: %d bytes. Maximum: %d bytes", req.File.Size, s.config.MaxFileSize)
+		return "", nil, fmt.Errorf("file too large: %d bytes. Maximum: %d bytes", req.File.Size, s.config.MaxFileSize)
 	}
 
 	// Open and read file
@@ -82,7 +73,7 @@ func (s *TranscriptService) UploadTranscript(req *UploadTranscriptRequest, corre
 			"filename":  req.File.Filename,
 			"operation": "open_upload_file",
 		})
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return "", nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
@@ -92,25 +83,31 @@ func (s *TranscriptService) UploadTranscript(req *UploadTranscriptRequest, corre
 			"filename":  req.File.Filename,
 			"operation": "read_file_content",
 		})
-		return nil, fmt.Errorf("failed to read file: %w", err)
+		return "", nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
 	// Validate UTF-8 encoding
 	if !isValidUTF8(content) {
-		return nil, fmt.Errorf("file must be UTF-8 encoded")
+		return "", nil, fmt.Errorf("file must be UTF-8 encoded")
 	}
 
-	// Calculate content hash
-	hash := sha256.Sum256(content)
-	contentHash := hex.EncodeToString(hash[:])
+	return ext, content, nil
+}
 
-	// Check for duplicates
+// checkForDuplicates checks if transcript with same content hash already exists
+func (s *TranscriptService) checkForDuplicates(contentHash string, correlationID string) error {
+	log := logger.WithCorrelationID(correlationID)
+	
 	var existingTranscript models.Transcript
 	if err := s.db.Where("content_hash = ?", contentHash).First(&existingTranscript).Error; err == nil {
 		log.WithField("existing_id", existingTranscript.ID).Info("Duplicate transcript detected")
-		return nil, fmt.Errorf("duplicate transcript already exists with ID: %s", existingTranscript.ID)
+		return fmt.Errorf("duplicate transcript already exists with ID: %s", existingTranscript.ID)
 	}
+	return nil
+}
 
+// processTranscriptFile processes file content and creates transcript record
+func (s *TranscriptService) processTranscriptFile(req *UploadTranscriptRequest, content []byte, ext string, contentHash string, correlationID string) (*models.Transcript, error) {
 	// Parse content and calculate word count
 	wordCount, metadata, err := s.parseTranscriptContent(content, ext)
 	if err != nil {
@@ -132,15 +129,20 @@ func (s *TranscriptService) UploadTranscript(req *UploadTranscriptRequest, corre
 		UploadedAt:         time.Now(),
 	}
 
+	return transcript, nil
+}
+
+// saveTranscriptToStorage saves transcript file and database record
+func (s *TranscriptService) saveTranscriptToStorage(transcript *models.Transcript, content []byte, correlationID string) error {
 	// Save file to storage
 	filePath, err := s.saveFile(transcript.ID, content)
 	if err != nil {
 		logger.LogErrorWithStackAndCorrelation(err, correlationID, map[string]interface{}{
 			"transcript_id": transcript.ID,
-			"filename":      req.File.Filename,
+			"filename":      transcript.Filename,
 			"operation":     "save_file",
 		})
-		return nil, fmt.Errorf("failed to save file: %w", err)
+		return fmt.Errorf("failed to save file: %w", err)
 	}
 	transcript.FilePath = filePath
 
@@ -150,10 +152,42 @@ func (s *TranscriptService) UploadTranscript(req *UploadTranscriptRequest, corre
 		_ = os.Remove(filePath)
 		logger.LogErrorWithStackAndCorrelation(err, correlationID, map[string]interface{}{
 			"transcript_id": transcript.ID,
-			"filename":      req.File.Filename,
+			"filename":      transcript.Filename,
 			"operation":     "save_transcript_to_database",
 		})
-		return nil, fmt.Errorf("failed to save transcript to database: %w", err)
+		return fmt.Errorf("failed to save transcript to database: %w", err)
+	}
+
+	return nil
+}
+
+func (s *TranscriptService) UploadTranscript(req *UploadTranscriptRequest, correlationID string) (*UploadTranscriptResponse, error) {
+	log := logger.WithCorrelationID(correlationID)
+
+	// Validate uploaded file
+	ext, content, err := s.validateUploadedFile(req, correlationID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate content hash
+	hash := sha256.Sum256(content)
+	contentHash := hex.EncodeToString(hash[:])
+
+	// Check for duplicates
+	if err := s.checkForDuplicates(contentHash, correlationID); err != nil {
+		return nil, err
+	}
+
+	// Process transcript file
+	transcript, err := s.processTranscriptFile(req, content, ext, contentHash, correlationID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Save to storage and database
+	if err := s.saveTranscriptToStorage(transcript, content, correlationID); err != nil {
+		return nil, err
 	}
 
 	log.WithFields(map[string]interface{}{
@@ -279,6 +313,37 @@ func (s *TranscriptService) saveFile(transcriptID uuid.UUID, content []byte) (st
 	return filePath, nil
 }
 
+// extractJSONMetadata extracts metadata from JSON transcript data
+func (s *TranscriptService) extractJSONMetadata(jsonData map[string]interface{}) map[string]interface{} {
+	metadata := make(map[string]interface{})
+	for key, value := range jsonData {
+		if key != "transcript" {
+			metadata[key] = value
+		}
+	}
+	return metadata
+}
+
+// countWordsInTranscript counts words in transcript field (array or string format)
+func (s *TranscriptService) countWordsInTranscript(transcript interface{}) int {
+	if transcriptArray, ok := transcript.([]interface{}); ok {
+		// Array format: [{"text": "...", "speaker": "...", "timestamp": "..."}, ...]
+		wordCount := 0
+		for _, item := range transcriptArray {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				if text, ok := itemMap["text"].(string); ok {
+					wordCount += countWords(text)
+				}
+			}
+		}
+		return wordCount
+	} else if transcriptText, ok := transcript.(string); ok {
+		// String format
+		return countWords(transcriptText)
+	}
+	return 0
+}
+
 func (s *TranscriptService) parseTranscriptContent(content []byte, ext string) (int, []byte, error) {
 	var wordCount int
 	var metadata map[string]interface{}
@@ -293,28 +358,11 @@ func (s *TranscriptService) parseTranscriptContent(content []byte, ext string) (
 		}
 
 		// Extract metadata
-		metadata = make(map[string]interface{})
-		for key, value := range jsonData {
-			if key != "transcript" {
-				metadata[key] = value
-			}
-		}
+		metadata = s.extractJSONMetadata(jsonData)
 
-		// Count words in transcript array or text field
+		// Count words in transcript field
 		if transcript, ok := jsonData["transcript"]; ok {
-			if transcriptArray, ok := transcript.([]interface{}); ok {
-				// Array format: [{"text": "...", "speaker": "...", "timestamp": "..."}, ...]
-				for _, item := range transcriptArray {
-					if itemMap, ok := item.(map[string]interface{}); ok {
-						if text, ok := itemMap["text"].(string); ok {
-							wordCount += countWords(text)
-						}
-					}
-				}
-			} else if transcriptText, ok := transcript.(string); ok {
-				// String format
-				wordCount = countWords(transcriptText)
-			}
+			wordCount = s.countWordsInTranscript(transcript)
 		}
 	} else {
 		// Plain text format
