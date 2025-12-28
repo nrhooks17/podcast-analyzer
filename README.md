@@ -21,14 +21,6 @@ podcast-analyzer/
 └── migrations/          # Database migrations
 ```
 
-## Key Features
-
-- **Framework**: Gin HTTP framework for high performance
-- **ORM**: GORM for database operations with PostgreSQL
-- **Messaging**: Segmentio Kafka Go client
-- **Logging**: Structured JSON logging with correlation IDs
-- **Configuration**: Environment-based configuration
-- **Type Safety**: Full Go type safety with proper error handling
 
 ## API Endpoints
 
